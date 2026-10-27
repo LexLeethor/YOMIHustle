@@ -1,5 +1,5 @@
 (() => {
-  const relayUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/relay/`;
+  const relayUrl = `wss://truffled.lol/relay/`;
   window.YOMI_RELAY_URL = relayUrl;
   const NativeWebSocket = window.WebSocket;
   const debug = new URL(window.location.href).searchParams.has("relayDebug");
