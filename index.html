@@ -115,6 +115,21 @@
 <link id='-gd-engine-icon' rel='icon' type='image/png' href='index.icon.png' />
 <link rel='apple-touch-icon' href='index.apple-touch-icon.png'/>
 <script src="multiplayer.js"></script>
+<script>
+(function () {
+  var messageToHide = "Invalid operands 'PoolIntArray' and 'Array' in operator '=='";
+
+  ["warn", "error"].forEach(function (level) {
+    var original = console[level];
+    console[level] = function () {
+      for (var i = 0; i < arguments.length; i++) {
+        if (String(arguments[i]).indexOf(messageToHide) !== -1) return;
+      }
+      return original.apply(console, arguments);
+    };
+  });
+})();
+</script>
 </head>
 <body>
 	<canvas id='canvas'>
@@ -139,7 +154,7 @@
 	<script type='text/javascript' src='index.js'></script>
 	<script type='text/javascript'>//<![CDATA[
 
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":18377824,"index.wasm":17862218},"focusCanvas":true,"gdnativeLibs":[]};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":18386944,"index.wasm":13789463},"focusCanvas":true,"gdnativeLibs":[]};
 		var engine = new Engine(GODOT_CONFIG);
 
 		(function() {
