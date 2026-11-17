@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>epoxy relay check</title>
+<style>
+  body { background: #0b0f0d; color: #d8e7dd; font: 13px/1.45 ui-monospace, monospace; margin: 0; padding: 16px; }
+  pre { white-space: pre-wrap; }
+</style>
+<pre id="out"></pre>
+<script src="multiplayer.js"></script>
+<script type="module">
+  // Exercises the same path the game uses: window.WebSocket (multiplayer.js)
+  // opening the relay URL, which is tunneled through the wisp with epoxy TLS.
+  const out = document.getElementById("out");
+  const log = (...parts) => {
+    const line = parts.map((part) => (typeof part === "string" ? part : JSON.stringify(part))).join(" ");
+    out.textContent += line + "\n";
+    console.log("[epoxy-check] " + line);
+  };
+  const target = new URLSearchParams(location.search).get("target") || window.YOMI_RELAY_URL;
+  log("relay " + target + " via wisp " + window.YOMI_WISP_URL);
+
+  const socket = new WebSocket(target);
+  const messages = [];
+  let askedForList = false;
+  const finish = (status) => {
+    window.__epoxyCheck = status;
+    log(status);
+  };
+  const timer = setTimeout(() => finish("timeout"), 40000);
+
+  socket.onopen = () => {
+    log("open");
+    socket.send(JSON.stringify({ type: "create_match", player_name: "epoxy-probe", public: true, version: "probe" }));
+    log("sent create_match");
+  };
+  socket.onmessage = (event) => {
+    const text = typeof event.data === "string" ? event.data : new TextDecoder().decode(new Uint8Array(event.data));
+    log("recv", text.slice(0, 220));
+    try {
+      messages.push(JSON.parse(text));
+    } catch {}
+    if (!askedForList && messages.some((message) => message.type === "match_created")) {
+      askedForList = true;
+      socket.send(JSON.stringify({ type: "fetch_match_list" }));
+      log("sent fetch_match_list");
+    }
+    if (messages.some((message) => message.type === "match_list")) {
+      clearTimeout(timer);
+      socket.close(1000, "done");
+      finish("ok");
+    }
+  };
+  socket.onerror = (event) => log("error", String((event && event.message) || ""));
+  socket.onclose = (event) => {
+    log("close", event.code, event.reason);
+    if (!window.__epoxyCheck) finish("closed-early");
+  };
+</script>

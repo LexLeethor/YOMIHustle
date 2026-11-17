@@ -1,0 +1,159 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>wisp latency</title>
+<style>
+  body { background: #0b0f0d; color: #d8e7dd; font: 12px/1.5 ui-monospace, monospace; margin: 0; padding: 14px; }
+  table { border-collapse: collapse; }
+  td, th { padding: 2px 10px 2px 0; text-align: left; }
+</style>
+<table id="tbl"></table>
+<pre id="out"></pre>
+<script type="module">
+  // Measures each wisp endpoint the way the game uses it: wisp tunnel + TLS + websocket
+  // handshake to our relay, then message round-trips. `direct` is the no-tunnel baseline.
+  const ENDPOINTS = [
+    { label: "fern girlsperples", wisp: "wss://girlspreples.org/wi/" },
+    { label: "fern kristenblackburn", wisp: "wss://shop.kristenblackburnvolleyballcamps.com/wi/" },
+    { label: "fern southpadre", wisp: "wss://learn.southpadreislandkiteboarding.com/wi/" },
+    { label: "truffled", wisp: "wss://truffled.lol/wisp/" },
+  ];
+  const TARGET = "wss://relays.cbgames.org/yomihustle/";
+  const ROUNDS = 8;
+  const TIMEOUT = 20000;
+
+  const results = [];
+  window.__latency = { done: false, results };
+  const out = document.getElementById("out");
+  const log = (line) => {
+    out.textContent += line + "\n";
+    console.log("[latency] " + line);
+  };
+  const median = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted.length ? sorted[Math.floor(sorted.length / 2)] : NaN;
+  };
+  const round = (value) => (Number.isFinite(value) ? Math.round(value) : NaN);
+
+  // Sends fetch_player_count N times and times each reply.
+  function measureRtt(socket, send, timeoutMs = TIMEOUT) {
+    return new Promise((resolve) => {
+      const samples = [];
+      let sentAt = 0;
+      let finished = false;
+      const timer = setTimeout(() => finish(), timeoutMs);
+      function finish() {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(samples);
+      }
+      const next = () => {
+        if (samples.length >= ROUNDS) return finish();
+        sentAt = performance.now();
+        send('{"type":"fetch_player_count"}');
+      };
+      socket.onmessage = (event) => {
+        const text = typeof event.data === "string" ? event.data : new TextDecoder().decode(new Uint8Array(event.data));
+        if (text.indexOf("player_count") === -1) return;
+        if (sentAt) samples.push(performance.now() - sentAt);
+        next();
+      };
+      socket.onerror = () => finish();
+      socket.onclose = () => finish();
+      next();
+    });
+  }
+
+  async function measureDirect() {
+    const started = performance.now();
+    return new Promise((resolve) => {
+      const socket = new WebSocket(TARGET);
+      socket.onopen = async () => {
+        const connectMs = performance.now() - started;
+        const rtts = await measureRtt(socket, (payload) => socket.send(payload));
+        try { socket.close(); } catch {}
+        resolve({ label: "direct (no tunnel)", connectMs, rtts });
+      };
+      socket.onerror = () => resolve({ label: "direct (no tunnel)", error: "socket error" });
+      setTimeout(() => resolve({ label: "direct (no tunnel)", error: "timeout" }), TIMEOUT);
+    });
+  }
+
+  let epoxyModule = null;
+  let epoxyInitMs = NaN;
+  async function measureWisp(entry) {
+    const started = performance.now();
+    if (!epoxyModule) {
+      const initStarted = performance.now();
+      epoxyModule = await import("./epoxy-bundled.js");
+      await epoxyModule.default();
+      epoxyInitMs = performance.now() - initStarted;
+      log("epoxy wasm init " + round(epoxyInitMs) + " ms");
+    }
+    const options = new epoxyModule.EpoxyClientOptions();
+    options.wisp_v2 = false;
+    options.udp_extension_required = false;
+    let client;
+    try {
+      client = new epoxyModule.EpoxyClient(entry.wisp, options);
+    } catch (error) {
+      return { label: entry.label, wisp: entry.wisp, error: String(error) };
+    }
+    let socket = null;
+    const connectMs = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(NaN), TIMEOUT);
+      client
+        .connect_websocket(
+          new epoxyModule.EpoxyHandlers(
+            () => {},
+            () => {},
+            () => {},
+            () => {}
+          ),
+          TARGET,
+          [],
+          {}
+        )
+        .then((opened) => {
+          clearTimeout(timer);
+          socket = opened;
+          resolve(performance.now() - started);
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          resolve(NaN);
+        });
+    });
+    if (!socket) return { label: entry.label, wisp: entry.wisp, error: "tunnel/connect failed" };
+    const rtts = await measureRtt(socket, (payload) => socket.send(payload));
+    try { socket.close(1000, "done"); } catch {}
+    try { client.free(); } catch {}
+    return { label: entry.label, wisp: entry.wisp, connectMs, rtts };
+  }
+
+  function render() {
+    const rows = results
+      .map((entry) => {
+        if (entry.error) return `<tr><td>${entry.label}</td><td colspan="5">${entry.error}</td></tr>`;
+        const rtts = entry.rtts || [];
+        return `<tr><td>${entry.label}</td><td>${round(entry.connectMs)} ms</td><td>${rtts.length}</td><td>${round(Math.min(...rtts))}</td><td>${round(median(rtts))}</td><td>${round(Math.max(...rtts))}</td></tr>`;
+      })
+      .join("");
+    document.getElementById("tbl").innerHTML =
+      "<tr><th>endpoint</th><th>connect</th><th>samples</th><th>min rtt</th><th>median</th><th>max</th></tr>" + rows;
+  }
+
+  log("target " + TARGET);
+  for (const entry of ENDPOINTS) {
+    const result = await measureWisp(entry);
+    results.push(result);
+    render();
+    log(JSON.stringify(result));
+  }
+  const direct = await measureDirect();
+  results.push(direct);
+  render();
+  log(JSON.stringify(direct));
+  window.__latency.done = true;
+  log("done");
+</script>
