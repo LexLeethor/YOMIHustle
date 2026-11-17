@@ -13,7 +13,8 @@
 //   ?relayDebug             log relay handshake traffic
 (() => {
   const params = new URLSearchParams(window.location.search);
-  const DEFAULT_WISP = "wss://truffled.lol/wisp/";
+  // Tried in order: the first endpoint that completes a tunnel is used.
+  const DEFAULT_WISP = "wss://girlspreples.org/wi/,wss://snoopy.easternstamps.com/wisp/";
   const DEFAULT_RELAY = "wss://relays.cbgames.org/yomihustle/";
   const relayUrl = params.get("relay") || window.YOMI_RELAY_URL || DEFAULT_RELAY;
   const nowisp = params.has("nowisp");
@@ -136,6 +137,7 @@
       this._queue = [];
       this._incoming = [];
       this._heartbeat = 0;
+      this._openTimer = 0;
       this._open(url, protocols);
     }
 
@@ -150,16 +152,18 @@
               if (this.onerror) this.onerror({ message: String(error) });
             },
             (payload) => {
-              // The relay greets us the moment the tunnel is up, which can be before
-              // connect_websocket resolves; hold those frames until onopen. After close, drop them.
               if (this.readyState === 2 || this.readyState === 3) return;
               const data = toEventData(payload);
               trace("receive", data);
-              if (this.readyState === 1) {
-                if (this.onmessage) this.onmessage({ data });
-              } else {
+              if (this.readyState === 0) {
+                // A frame arriving proves the tunnel carries traffic in both directions.
+                // Anything sent before that can sit in the tunnel for seconds, so this is
+                // the real "connected" moment (the relay greets us right after the upgrade).
                 this._incoming.push(data);
+                this._finalize();
+                return;
               }
+              if (this.onmessage) this.onmessage({ data });
             }
           )
         : null;
@@ -181,6 +185,7 @@
             continue;
           }
           this.tunnel = wisp + (v2 ? " (wisp v2)" : " (wisp v1)");
+          window.YOMI_WISP_URL = wisp;
           console.info("YOMI relay: tunnel via " + this.tunnel);
           this._socket = socket;
           if (this.readyState === 3) {
@@ -199,9 +204,19 @@
     }
 
     // Only called once the socket exists, so nothing queued during the handshake can be
-    // lost or sent before the stream is writable.
+    // lost or sent before the stream is writable. Opening waits for the relay's first frame
+    // (see the message handler); the timer covers a server that stays silent.
     _opened() {
       if (this.readyState !== 0) return;
+      this._openTimer = window.setTimeout(() => this._finalize(), 1500);
+      // Warm the tunnel: the relay answers this, so the game's first real message is not the
+      // one that pays for the connection being newly established.
+      this._send('{"type":"fetch_player_count"}');
+    }
+
+    _finalize() {
+      if (this.readyState !== 0) return;
+      window.clearTimeout(this._openTimer);
       this.readyState = 1;
       this._flush();
       this._heartbeat = window.setInterval(() => {
@@ -219,6 +234,7 @@
 
     _closed(code, reason, fireError) {
       if (this.readyState === 3) return;
+      window.clearTimeout(this._openTimer);
       window.clearInterval(this._heartbeat);
       this.readyState = 3;
       if (fireError && this.onerror) this.onerror({ message: reason });
@@ -256,6 +272,7 @@
     close(code = 1000, reason = "") {
       if (this.readyState === 3) return;
       this.readyState = 2;
+      window.clearTimeout(this._openTimer);
       window.clearInterval(this._heartbeat);
       if (this._socket) this._socket.close(code, reason).catch(() => {});
       this._closed(code, reason, false);
@@ -274,4 +291,6 @@
   YomiWebSocket.prototype = NativeWebSocket.prototype;
 
   window.WebSocket = YomiWebSocket;
+  // The untouched browser socket, for tools that want to compare against a direct connection.
+  window.YOMI_NATIVE_WEBSOCKET = NativeWebSocket;
 })();
