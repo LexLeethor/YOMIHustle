@@ -33,6 +33,33 @@
     .map(normalizeWisp)
     .filter(Boolean);
 
+  // Every reconnect builds a new socket, and the game reconnects on its own. Remembering the
+  // endpoint that actually carried traffic (and benching one that just failed) keeps those
+  // reconnects from walking back into a dead wisp first every single time.
+  const FAILED_COOLDOWN_MS = 60000;
+  const wispState = { lastGood: "", failedAt: {} };
+
+  function wispOrder() {
+    const now = Date.now();
+    const rank = (wisp) => {
+      if (wisp === wispState.lastGood) return 0;
+      const failedAt = wispState.failedAt[wisp];
+      return failedAt && now - failedAt < FAILED_COOLDOWN_MS ? 2 : 1;
+    };
+    return WISP_CANDIDATES.map((wisp, index) => ({ wisp, index }))
+      .sort((a, b) => rank(a.wisp) - rank(b.wisp) || a.index - b.index)
+      .map((entry) => entry.wisp);
+  }
+
+  function noteWispResult(wisp, worked) {
+    if (worked) {
+      wispState.lastGood = wisp;
+      delete wispState.failedAt[wisp];
+    } else {
+      wispState.failedAt[wisp] = Date.now();
+    }
+  }
+
   const forcedVersion = params.get("wispv");
   const versionOrder = () => {
     if (forcedVersion === "2") return [true];
@@ -171,7 +198,7 @@
 
     async _open(url, protocols) {
       const failures = [];
-      for (const wisp of WISP_CANDIDATES) {
+      for (const wisp of wispOrder()) {
         for (const v2 of versionOrder()) {
           if (this.readyState === 3) return;
           let socket = null;
@@ -182,8 +209,10 @@
             socket = await client.connect_websocket(handlers, url, protocols || [], {});
           } catch (error) {
             failures.push(wisp + (v2 ? " v2" : " v1") + ": " + (error && error.message ? error.message : error));
+            noteWispResult(wisp, false);
             continue;
           }
+          noteWispResult(wisp, true);
           this.tunnel = wisp + (v2 ? " (wisp v2)" : " (wisp v1)");
           window.YOMI_WISP_URL = wisp;
           console.info("YOMI relay: tunnel via " + this.tunnel);
