@@ -5,11 +5,16 @@
 // runs a real TLS stack in WebAssembly over the tunnel, which is what makes the Worker relay
 // reachable through a wisp server.
 //
+// Direct first: the relay is an ordinary wss endpoint, so the browser's own WebSocket is
+// tried before any tunnel. The wisp path below is only a fallback for networks where the
+// direct connection fails.
+//
 //   ?wisp=<url>[,<url>...]  wisp endpoint(s) to tunnel through, tried in order
 //                           accepts any form: host, host/wi, wss://host/wi/, ...
+//                           setting this (or window.YOMI_WISP_URL) skips the direct attempt
 //   ?relay=<ws(s)://...>    relay to open (wins over YOMI_RELAY_URL)
 //   ?wispv=1|2              force a wisp protocol version (auto-negotiated by default)
-//   ?nowisp=1               talk to the relay directly, no tunnel
+//   ?nowisp=1               direct only: never fall back to a tunnel
 //   ?relayDebug             log relay handshake traffic
 (() => {
   const params = new URLSearchParams(window.location.search);
@@ -18,6 +23,9 @@
   const DEFAULT_RELAY = "wss://relays.cbgames.org/yomihustle/";
   const relayUrl = params.get("relay") || window.YOMI_RELAY_URL || DEFAULT_RELAY;
   const nowisp = params.has("nowisp");
+  // Read before anything below sets it: a wisp URL published by this script must not look
+  // like a caller asking for a tunnel.
+  const presetWisp = window.YOMI_WISP_URL || "";
   const debug = params.has("relayDebug");
 
   function normalizeWisp(raw) {
@@ -38,6 +46,13 @@
   // reconnects from walking back into a dead wisp first every single time.
   const FAILED_COOLDOWN_MS = 60000;
   const wispState = { lastGood: "", failedAt: {} };
+  // Direct attempts are remembered the same way: once one works every reconnect goes straight
+  // to it, and one that just failed is not retried (and its timeout re-paid) for a minute.
+  const DIRECT_TIMEOUT_MS = 4000;
+  const directState = { worked: false, failedAt: 0 };
+  const directAllowed = () =>
+    !params.has("wisp") && !presetWisp &&
+    (directState.worked || Date.now() - directState.failedAt >= FAILED_COOLDOWN_MS);
 
   function wispOrder() {
     const now = Date.now();
@@ -178,25 +193,84 @@
               console.error("YOMI relay socket error: " + error);
               if (this.onerror) this.onerror({ message: String(error) });
             },
-            (payload) => {
-              if (this.readyState === 2 || this.readyState === 3) return;
-              const data = toEventData(payload);
-              trace("receive", data);
-              if (this.readyState === 0) {
-                // A frame arriving proves the tunnel carries traffic in both directions.
-                // Anything sent before that can sit in the tunnel for seconds, so this is
-                // the real "connected" moment (the relay greets us right after the upgrade).
-                this._incoming.push(data);
-                this._finalize();
-                return;
-              }
-              if (this.onmessage) this.onmessage({ data });
-            }
+            (payload) => this._receive(payload)
           )
         : null;
     }
 
+    // A frame arriving while the socket is still CONNECTING proves the connection carries
+    // traffic in both directions. Anything sent before that can sit unhandled for seconds, so
+    // this is the real "connected" moment (the relay greets us right after the upgrade).
+    _receive(payload) {
+      if (this.readyState === 2 || this.readyState === 3) return;
+      const data = toEventData(payload);
+      trace("receive", data);
+      if (this.readyState === 0) {
+        this._incoming.push(data);
+        this._finalize();
+        return;
+      }
+      if (this.onmessage) this.onmessage({ data });
+    }
+
+    // The relay speaks plain wss, so the browser can usually reach it with no tunnel at all.
+    // Resolves true once the direct socket is open; any failure falls through to the wisp loop.
+    _openDirect(url, protocols) {
+      return new Promise((resolve) => {
+        let settled = false;
+        let socket = null;
+        const fail = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          directState.failedAt = Date.now();
+          if (!directState.quiet) console.info("YOMI relay: direct connection failed, using a tunnel");
+          if (socket) {
+            socket.onopen = null;
+            socket.onerror = null;
+            socket.onclose = null;
+            try { socket.close(); } catch (error) {}
+          }
+          resolve(false);
+        };
+        const timer = window.setTimeout(fail, DIRECT_TIMEOUT_MS);
+        try {
+          socket = new NativeWebSocket(url, protocols);
+        } catch (error) {
+          fail();
+          return;
+        }
+        socket.binaryType = "arraybuffer";
+        socket.onopen = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          directState.worked = true;
+          directState.failedAt = 0;
+          this.tunnel = "direct";
+          this._socket = {
+            send: (payload) => socket.send(payload),
+            close: (code, reason) => {
+              try { socket.close(code, reason); } catch (error) {}
+              return Promise.resolve();
+            },
+          };
+          socket.onmessage = (event) => this._receive(event.data);
+          socket.onerror = () => {
+            if (this.onerror) this.onerror({ message: "direct relay socket error" });
+          };
+          socket.onclose = (event) => this._closed(event.code || 1006, event.reason || "", false);
+          console.info("YOMI relay: direct connection to " + url);
+          resolve(true);
+          this._opened();
+        };
+        socket.onerror = fail;
+        socket.onclose = fail;
+      });
+    }
+
     async _open(url, protocols) {
+      if (directAllowed() && (await this._openDirect(url, protocols))) return;
       const failures = [];
       for (const wisp of wispOrder()) {
         for (const v2 of versionOrder()) {
