@@ -2,7 +2,7 @@
 <html xmlns='http://www.w3.org/1999/xhtml' lang='' xml:lang=''>
 <head>
 	<meta charset='utf-8' />
-	<meta name='viewport' content='width=device-width, user-scalable=no' />
+	<meta name='viewport' content='width=device-width, user-scalable=no, viewport-fit=cover' />
 	<title>Your Only Move Is HUSTLE</title>
 	<style type='text/css'>
 
@@ -130,6 +130,292 @@
   });
 })();
 </script>
+<!-- mobile-web:begin -->
+<!-- Web build additions: wasm heap probe, home screen
+     install, phone sized notices, touch keys.
+     Source: tools/webbuild/web/head-include.html. tools/webbuild/apply.py copies
+     this block into index.html and into export_presets.cfg (html/head_include),
+     which every Godot export of the web preset emits, so a re-export keeps it. -->
+<meta name='description' content='Your Only Move Is HUSTLE, playable in the browser.' />
+<meta name='theme-color' content='#0f0f13' />
+<meta name='mobile-web-app-capable' content='yes' />
+<meta name='apple-mobile-web-app-capable' content='yes' />
+<meta name='apple-mobile-web-app-status-bar-style' content='black-translucent' />
+<meta name='apple-mobile-web-app-title' content='YOMI Hustle' />
+<meta name='format-detection' content='telephone=no' />
+<link rel='manifest' href='manifest.json' />
+<style>
+	/* mobile-web.js adds html.yomi-mobile, so nothing below matches on a
+	   desktop. The game is a 640x360 viewport that the engine scales to the
+	   window and sizes the canvas for; these rules only fix the page around it:
+	   the HTML notices, the touch key bar, the portrait notice and the Add to
+	   Home Screen hint. */
+
+	html.yomi-mobile,
+	html.yomi-mobile body {
+		height: 100%;
+		overflow: hidden;
+		overscroll-behavior: none;
+		background-color: #000;
+		-webkit-text-size-adjust: 100%;
+		text-size-adjust: 100%;
+	}
+
+	html.yomi-mobile body {
+		position: fixed;
+		left: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		width: 100%;
+		touch-action: none;
+	}
+
+	/* The engine's loading bar and notices, sized for a phone held at arm's
+	   length. */
+	html.yomi-mobile #status-progress {
+		width: 78vw;
+		max-width: 440px;
+		height: 10px;
+	}
+
+	html.yomi-mobile #status-notice {
+		margin: 0;
+		max-width: calc(100vw - 32px);
+		padding: 12px 14px;
+		box-sizing: border-box;
+		font-size: 17px;
+		line-height: 1.45;
+		border-radius: 6px;
+	}
+
+	/* A phone has no Escape key and the pause menu is behind one. The bar sits
+	   on the right edge, clear of the top HP bar and the bottom action buttons,
+	   where a landscape thumb reaches it. */
+	.yomi-touch-keys {
+		position: fixed;
+		z-index: 2147483000;
+		right: calc(6px + env(safe-area-inset-right, 0px));
+		top: 50%;
+		transform: translateY(-50%);
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		pointer-events: none;
+	}
+
+	.yomi-touch-keys button {
+		pointer-events: auto;
+		-webkit-appearance: none;
+		appearance: none;
+		min-width: 56px;
+		min-height: 44px;
+		margin: 0;
+		padding: 0 8px;
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		border-radius: 10px;
+		background: rgba(18, 18, 24, 0.55);
+		color: #f4f4f6;
+		font: 600 12px/1 'Noto Sans', Arial, sans-serif;
+		letter-spacing: 0.06em;
+		opacity: 0.7;
+		-webkit-backdrop-filter: blur(6px);
+		backdrop-filter: blur(6px);
+		touch-action: manipulation;
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.yomi-touch-keys button:active {
+		opacity: 1;
+		background: rgba(74, 74, 94, 0.9);
+	}
+
+	/* Portrait: the 640x360 picture becomes a short strip in the middle of the
+	   screen, at about 60% scale, where the game's own text is too small to
+	   read. This asks for landscape instead. */
+	.yomi-rotate {
+		position: fixed;
+		z-index: 2147483002;
+		left: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		display: none;
+		box-sizing: border-box;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 14px;
+		padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+		background: #0b0b10;
+		color: #f0f0f2;
+		text-align: center;
+		font: 16px/1.5 'Noto Sans', Arial, sans-serif;
+	}
+
+	html.yomi-mobile.yomi-portrait:not(.yomi-portrait-ok) .yomi-rotate {
+		display: flex;
+	}
+
+	.yomi-rotate-icon {
+		font-size: 42px;
+		line-height: 1;
+	}
+
+	.yomi-rotate h2 {
+		margin: 0;
+		font-size: 22px;
+		font-weight: 700;
+	}
+
+	.yomi-rotate p {
+		margin: 0;
+		max-width: 23em;
+		color: #b6b6c2;
+		font-size: 15px;
+	}
+
+	.yomi-rotate button {
+		margin-top: 6px;
+		min-height: 46px;
+		padding: 0 22px;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 10px;
+		background: #2a2a34;
+		color: #f4f4f6;
+		font: 600 16px/1 'Noto Sans', Arial, sans-serif;
+	}
+
+	/* iOS Safari has no install prompt, so it needs to say where the command
+	   lives. Android Chrome shows its own prompt. */
+	.yomi-install-hint {
+		position: fixed;
+		z-index: 2147483001;
+		left: calc(10px + env(safe-area-inset-left, 0px));
+		right: calc(10px + env(safe-area-inset-right, 0px));
+		top: calc(10px + env(safe-area-inset-top, 0px));
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 10px 12px;
+		box-sizing: border-box;
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		border-radius: 12px;
+		background: rgba(16, 16, 22, 0.94);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+		color: #e8e8ee;
+		font: 14px/1.4 'Noto Sans', Arial, sans-serif;
+	}
+
+	.yomi-install-hint-text b {
+		display: block;
+		font-weight: 700;
+	}
+
+	.yomi-install-hint-close {
+		flex: 0 0 auto;
+		width: 30px;
+		height: 30px;
+		margin: -4px -6px 0 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: #b6b6c2;
+		font-size: 20px;
+		line-height: 1;
+	}
+
+	/* The browser took the WebGL context back because the tab ran out of video
+	   memory. Say so, and offer the reload, instead of leaving a black canvas
+	   behind the engine's own blocking alert. */
+	.yomi-gl-notice {
+		position: fixed;
+		z-index: 2147483003;
+		left: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		box-sizing: border-box;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 14px;
+		padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+		background: #0b0b10;
+		color: #f0f0f2;
+		text-align: center;
+		font: 16px/1.5 'Noto Sans', Arial, sans-serif;
+	}
+
+	.yomi-gl-notice h2 {
+		margin: 0;
+		font-size: 22px;
+		font-weight: 700;
+	}
+
+	.yomi-gl-notice p {
+		margin: 0;
+		max-width: 24em;
+		color: #b6b6c2;
+		font-size: 15px;
+	}
+
+	.yomi-gl-notice button {
+		margin-top: 6px;
+		min-height: 46px;
+		padding: 0 22px;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		border-radius: 10px;
+		background: #2a2a34;
+		color: #f4f4f6;
+		font: 600 16px/1 'Noto Sans', Arial, sans-serif;
+	}
+</style>
+<script src='mobile-web.js'></script>
+<script type='text/javascript'>
+// Expose the engine's WebAssembly heap size so the in-game overlay can report
+// real memory use: Chrome's performance.memory only covers the JS heap, not the
+// wasm linear memory the game allocates from.
+(function () {
+	window.__godotWasm = 0;
+	function remember(moduleInstance) {
+		try {
+			var exports = moduleInstance && moduleInstance.exports;
+			if (!exports) return;
+			var memory = exports.memory;
+			if (!memory || !memory.buffer) {
+				for (var name in exports) {
+					var value = exports[name];
+					if (value instanceof WebAssembly.Memory) { memory = value; break; }
+				}
+			}
+			if (memory && memory.buffer) { window.__godotWasmMemory = memory; window.__godotWasm = memory.buffer.byteLength; }
+		} catch (e) {}
+	}
+	if (window.WebAssembly) {
+		var plain = WebAssembly.instantiate;
+		WebAssembly.instantiate = function () {
+			return plain.apply(this, arguments).then(function (result) {
+				remember(result && (result.instance || result));
+				return result;
+			});
+		};
+		if (WebAssembly.instantiateStreaming) {
+			var streaming = WebAssembly.instantiateStreaming;
+			WebAssembly.instantiateStreaming = function () {
+				return streaming.apply(this, arguments).then(function (result) {
+					remember(result && (result.instance || result));
+					return result;
+				});
+			};
+		}
+	}
+})();
+</script>
+<!-- mobile-web:end -->
 </head>
 <body>
 	<canvas id='canvas'>
@@ -154,7 +440,7 @@
 	<script type='text/javascript' src='index.js'></script>
 	<script type='text/javascript'>//<![CDATA[
 
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":30444960,"index.wasm":13789463},"focusCanvas":true,"gdnativeLibs":[]};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":30964144,"index.wasm":13789463},"focusCanvas":true,"gdnativeLibs":[]};
 		var engine = new Engine(GODOT_CONFIG);
 
 		(function() {
