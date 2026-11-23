@@ -22,7 +22,7 @@
   var KEY = 'yomi-boot';
   // Failures allowed before the prompt. Four loads is a crash loop; one or two is a
   // reload while the last download was still finishing.
-  var MAX_BOOTS = 3;
+  var MAX_BOOTS = 200;
   // A count older than this is not a loop, it is yesterday.
   var FORGET_AFTER_MS = 15 * 60 * 1000;
   // Frames have to keep arriving this long before the load counts as good: the engine
